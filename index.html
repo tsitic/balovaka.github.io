@@ -44,7 +44,7 @@
     <div id="menu">
       <div id="panel">
         <h1>Сапёр (△ ▢ ⬡)</h1>
-        <div class="hint">Выбери тесселяцию и сложность. Партии генерируются так, чтобы решались логикой (без угадываний).</div>
+        <div class="hint">Выбери тесселяцию и сложность. Партии гарантированно решаемы логикой (без угадываний).</div>
         <div style="margin-top:10px;font-weight:700">Плитки</div>
         <div class="grid" id="shapeGrid">
           <button data-shape="tri" data-active="1">△ Треугольники</button>
@@ -73,51 +73,49 @@
 </div>
 
 <script>
-/* ---------- Утилиты ---------- */
+/* ========= утилиты ========= */
 const rand=n=>Math.floor(Math.random()*n);
 function shuffle(a){for(let i=a.length-1;i>0;i--){const j=rand(i+1);[a[i],a[j]]=[a[j],a[i]]}return a}
 const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 function sample(arr,k){const c=arr.slice();shuffle(c);return c.slice(0,k);}
 
-/* ---------- Пресеты ---------- */
+/* ========= пресеты ========= */
 const PRESETS={
-  tri:{ easy:{w:22,h:16,mineRatio:.11}, norm:{w:26,h:18,mineRatio:.13}, hard:{w:30,h:20,mineRatio:.15}, tileSize:40 },
+  tri:{ easy:{w:22,h:14,mineRatio:.11}, norm:{w:26,h:16,mineRatio:.13}, hard:{w:30,h:18,mineRatio:.15}, tileSize:40 },
   sq :{ easy:{w:14,h:10,mineRatio:.14}, norm:{w:18,h:12,mineRatio:.17}, hard:{w:22,h:14,mineRatio:.20}, tileSize:38 },
   hex:{ easy:{w:16,h:10,mineRatio:.14}, norm:{w:20,h:12,mineRatio:.17}, hard:{w:24,h:14,mineRatio:.20}, tileSize:28 }
 };
 
-/* ---------- Состояние ---------- */
+/* ========= состояние ========= */
 const canvas=document.getElementById('canvas'), ctx=canvas.getContext('2d');
 let W=0,H=0;
 let state=null; // {shape,w,h,size,cells[],mines}
 let view={scale:1,ox:0,oy:0};
-let mode='dig'; let running=false;
+let mode='dig', running=false;
 
-/* ---------- Индексация/соседи ---------- */
+/* ========= индексация/соседи ========= */
 const idx=(x,y,w)=>x+y*w, inside=(x,y,w,h)=>x>=0&&y>=0&&x<w&&y<h;
 
 function neighbors(shape,x,y,w,h){
   if(shape==='sq'){
-    const nn=[]; for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){
-      if(dx||dy){const X=x+dx,Y=y+dy;if(inside(X,Y,w,h))nn.push(idx(X,Y,w));}
-    } return nn;
-  }
-  if(shape==='hex'){ // odd-q (column offset, pointy-top)
-    const odd=(x&1)===1;
-    const cand=odd? [[-1,0],[1,0],[0,-1],[1,-1],[0,1],[1,1]]
-                  : [[-1,0],[1,0],[-1,-1],[0,-1],[-1,1],[0,1]];
-    const nn=[];
-    for(const [dx,dy] of cand){const X=x+dx,Y=y+dy;if(inside(X,Y,w,h))nn.push(idx(X,Y,w));}
+    const nn=[]; for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){ if(dx||dy){const X=x+dx,Y=y+dy;if(inside(X,Y,w,h))nn.push(idx(X,Y,w));}}
     return nn;
   }
-  // tri: сосед по РЕБРУ (3 соседа), ориентация по (x+y)%2
+  if(shape==='hex'){ // flat-top, odd-q (смещение по столбцам)
+    const odd=(x&1)===1;
+    const cand = odd ? [[-1,0],[1,0],[0,-1],[1,-1],[0,1],[1,1]]
+                     : [[-1,0],[1,0],[-1,-1],[0,-1],[-1,1],[0,1]];
+    const nn=[]; for(const [dx,dy] of cand){const X=x+dx,Y=y+dy;if(inside(X,Y,w,h))nn.push(idx(X,Y,w));}
+    return nn;
+  }
+  // tri: 3 соседа по ребру (ориентация по (x+y)%2)
   const up=((x+y)&1)===0, nn=[];
   const cand=up? [[0,-1],[-1,0],[1,0]] : [[0,1],[-1,0],[1,0]];
   for(const [dx,dy] of cand){const X=x+dx,Y=y+dy;if(inside(X,Y,w,h))nn.push(idx(X,Y,w));}
   return nn;
 }
 
-/* ---------- Генерация поля ---------- */
+/* ========= генерация поля ========= */
 function makeEmpty(w,h){return new Array(w*h).fill(0).map(()=>({mine:false,n:0,open:false,flag:false}))}
 function placeMinesRandom(cells,w,h,count){const all=[];for(let y=0;y<h;y++)for(let x=0;x<w;x++)all.push(idx(x,y,w)); for(const i of sample(all,count))cells[i].mine=true;}
 function recalcNumbers(shape,cells,w,h){
@@ -127,7 +125,7 @@ function recalcNumbers(shape,cells,w,h){
   }
 }
 
-/* ---------- Логический солвер ---------- */
+/* ========= солвер (логика без угадываний) ========= */
 function floodOpen(shape,cells,w,h,start){
   const q=[start], seen=new Set([start]);
   while(q.length){
@@ -160,24 +158,65 @@ function trySolve(shape,cells,w,h){
   const tmp=cells.map(c=>({mine:c.mine,n:c.n,open:false,flag:false}));
   const start = tmp.findIndex(c=>!c.mine && c.n===0);
   if(start>=0) floodOpen(shape,tmp,w,h,start);
-  else{
-    const any= tmp.findIndex(c=>!c.mine); if(any>=0) floodOpen(shape,tmp,w,h,any);
-  }
+  else{ const any= tmp.findIndex(c=>!c.mine); if(any>=0) floodOpen(shape,tmp,w,h,any); }
   let guard=0; while(guard++<300){ if(!logicStep(shape,tmp,w,h)) break; }
   return isSolved(tmp);
 }
-function generateSolvable(shape,w,h,mineCount,maxTries=350){
+function generateSolvable(shape,w,h,mineCount,maxTries=400){
   for(let t=0;t<maxTries;t++){
     const cells=makeEmpty(w,h);
     placeMinesRandom(cells,w,h,mineCount);
     recalcNumbers(shape,cells,w,h);
     if(trySolve(shape,cells,w,h)) return cells;
   }
+  // fallback: чуть меньше мин
   const less=Math.max(1,Math.floor(mineCount*0.9));
   const cells=makeEmpty(w,h); placeMinesRandom(cells,w,h,less); recalcNumbers(shape,cells,w,h); return cells;
 }
 
-/* ---------- Геометрия и рендер ---------- */
+/* ========= геометрия (БЕЗ перекрытий) ========= */
+/* квадраты — центр (x*S, y*S), r=S*0.5 */
+function squarePoly(cx,cy,S){const r=S*0.5-1;return [[cx-r,cy-r],[cx+r,cy-r],[cx+r,cy+r],[cx-r,cy+r]];}
+
+/* шестиугольник flat-top; радиус = S; шаги: dx=1.5S, dy=√3·S·(y+0.5*(x&1)) */
+function hexCenter(x,y,S){
+  const R=S, cx = x*(1.5*R), cy = Math.sqrt(3)*R*(y + 0.5*(x&1));
+  return [cx,cy];
+}
+function hexPoly(cx,cy,R){const p=[];for(let k=0;k<6;k++){const a= Math.PI/3*k; p.push([cx+R*Math.cos(a), cy+R*Math.sin(a)]);}return p;}
+
+/* треугольники: сторона a=S, высота h=√3/2·a; ровная сетка без наезда */
+function triPolyByIndex(x,y,S){
+  const a=S, h=a*Math.sqrt(3)/2;
+  // базовая точка параллелограммной решётки
+  const bx = x*(a/2), by = y*(h/2);
+  const up = ((x+y)&1)===0;
+  if(up)  return [[bx,by],[bx+a/2,by+h],[bx-a/2,by+h]];
+  else    return [[bx,by+h],[bx+a/2,by],[bx-a/2,by]];
+}
+function centroid(poly){let x=0,y=0;for(const p of poly){x+=p[0];y+=p[1];}return [x/poly.length,y/poly.length];}
+
+/* возврат полигона и "центра" для текста/иконок */
+function getPoly(shape,x,y,S){
+  if(shape==='sq'){
+    const cx=x*S, cy=y*S; return {poly:squarePoly(cx,cy,S), center:[cx,cy]};
+  }
+  if(shape==='hex'){
+    const [cx,cy]=hexCenter(x,y,S); return {poly:hexPoly(cx,cy,S-1), center:[cx,cy]};
+  }
+  const poly=triPolyByIndex(x,y,S); return {poly, center:centroid(poly)};
+}
+
+/* точный point-in-polygon */
+function pip(px,py,poly){
+  let inside=false; for(let i=0,j=poly.length-1;i<poly.length;j=i++){
+    const [xi,yi]=poly[i],[xj,yj]=poly[j];
+    const inter=((yi>py)!=(yj>py)) && (px < (xj-xi)*(py-yi)/(yj-yi+1e-9)+xi);
+    if(inter) inside=!inside;
+  } return inside;
+}
+
+/* ========= рендер ========= */
 function resize(){
   canvas.width=canvas.clientWidth=window.innerWidth;
   const head=document.querySelector('header').offsetHeight;
@@ -185,73 +224,34 @@ function resize(){
   canvas.height=canvas.clientHeight=window.innerHeight-head-foot;
   W=canvas.width; H=canvas.height; draw();
 }
-const polyPath=(poly)=>{ctx.moveTo(poly[0][0],poly[0][1]); for(let i=1;i<poly.length;i++)ctx.lineTo(poly[i][0],poly[i][1]); ctx.closePath();};
-
-function getPoly(shape,x,y,S){
-  if(shape==='sq'){
-    const cx=x*S, cy=y*S;
-    const r=S*0.48;
-    return {cx,cy,poly:[[cx-r,cy-r],[cx+r,cy-r],[cx+r,cy+r],[cx-r,cy+r]]};
-  }
-  if(shape==='hex'){ // pointy-top, radius r=S
-    const r=S, dx=1.5*r, dy=Math.sqrt(3)*r;
-    const cx=x*dx, cy=dy*(y + 0.5*(x&1));
-    const R=r*0.95;
-    const poly=[]; for(let k=0;k<6;k++){const a=Math.PI/3*k - Math.PI/6; poly.push([cx+R*Math.cos(a), cy+R*Math.sin(a)]);}
-    return {cx,cy,poly};
-  }
-  // triangles: side a=S, height h=a*sqrt(3)/2. centers на регулярной сетке
-  const a=S, h=a*Math.sqrt(3)/2;
-  const cx = x*(a/2), cy = y*(h/2);
-  const up = ((x+y)&1)===0;
-  let poly;
-  if(up)  poly=[[cx,cy-h/2],[cx-a/2,cy+h/2],[cx+a/2,cy+h/2]];
-  else    poly=[[cx,cy+h/2],[cx-a/2,cy-h/2],[cx+a/2,cy-h/2]];
-  return {cx,cy,poly};
-}
-
-/* точный хит-тест */
-function pointInPoly(px,py,poly){
-  let inside=false;
-  for(let i=0,j=poly.length-1;i<poly.length;j=i++){
-    const xi=poly[i][0], yi=poly[i][1], xj=poly[j][0], yj=poly[j][1];
-    const intersect=((yi>py)!=(yj>py)) && (px < (xj-xi)*(py-yi)/(yj-yi+1e-9)+xi);
-    if(intersect) inside=!inside;
-  }
-  return inside;
-}
-
 function draw(){
   ctx.clearRect(0,0,W,H);
   if(!state) return;
-
   ctx.save(); ctx.translate(view.ox,view.oy); ctx.scale(view.scale,view.scale);
   ctx.lineWidth=1/Math.max(1,view.scale);
 
   const {shape,w,h,size,cells}=state;
   for(let y=0;y<h;y++)for(let x=0;x<w;x++){
-    const i=idx(x,y,w), C=cells[i], g=getPoly(shape,x,y,size);
+    const i=idx(x,y,w), C=cells[i], {poly,center:[cx,cy]}=getPoly(shape,x,y,size);
 
-    // фон
-    ctx.beginPath(); polyPath(g.poly);
+    ctx.beginPath(); pathPoly(poly);
     ctx.fillStyle=C.open?'rgba(255,255,255,.06)':'rgba(255,255,255,.02)'; ctx.fill();
     ctx.strokeStyle='rgba(255,255,255,.12)'; ctx.stroke();
 
-    // содержимое
     if(C.flag && !C.open){
-      ctx.fillStyle='rgba(239,68,68,.9)'; drawFlag(g.cx,g.cy,Math.max(10,size*.22));
+      ctx.fillStyle='rgba(239,68,68,.9)'; drawFlag(cx,cy,Math.max(10,size*.22));
     }else if(C.open){
-      if(C.mine){ ctx.fillStyle='rgba(239,68,68,.9)'; drawMine(g.cx,g.cy,Math.max(10,size*.22)); }
+      if(C.mine){ ctx.fillStyle='rgba(239,68,68,.9)'; drawMine(cx,cy,Math.max(10,size*.22)); }
       else if(C.n>0){
         const color=['#93c5fd','#22d3ee','#22c55e','#eab308','#ef4444','#a855f7','#f97316','#38bdf8'][(C.n-1)%8];
         ctx.fillStyle=color; ctx.font=`${Math.max(10,size*.42)}px ui-monospace,Consolas,monospace`;
-        ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(String(C.n),g.cx,g.cy);
+        ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(String(C.n),cx,cy);
       }
     }
   }
   ctx.restore();
 }
-
+function pathPoly(poly){ctx.moveTo(poly[0][0],poly[0][1]); for(let k=1;k<poly.length;k++)ctx.lineTo(poly[k][0],poly[k][1]); ctx.closePath();}
 function drawFlag(cx,cy,r){
   ctx.beginPath(); ctx.moveTo(cx-r*0.3,cy+r*0.6); ctx.lineTo(cx-r*0.3,cy-r*0.6);
   ctx.lineWidth=2/Math.max(1,view.scale); ctx.strokeStyle='rgba(255,255,255,.85)'; ctx.stroke();
@@ -264,20 +264,21 @@ function drawMine(cx,cy,r){
     ctx.strokeStyle='rgba(239,68,68,.9)'; ctx.lineWidth=2/Math.max(1,view.scale); ctx.stroke();}
 }
 
-/* ---------- Взаимодействие ---------- */
+/* ========= взаимодействие ========= */
 function cellAtScreen(sx,sy){
   if(!state) return -1;
-  const {shape,w,h,size}=state;
   const wx=(sx-view.ox)/view.scale, wy=(sy-view.oy)/view.scale;
-
-  // перебор локального окна — берём ближайшие центры и проверяем point-in-polygon
-  let best=-1;
-  // ограничим область поиска разумной окрестностью
+  const {shape,w,h,size}=state;
+  // быстрая проверка по bbox окрестности
   for(let y=0;y<h;y++)for(let x=0;x<w;x++){
-    const i=idx(x,y,w); const g=getPoly(shape,x,y,size);
-    if(pointInPoly(wx,wy,g.poly)) return i;
+    const i=idx(x,y,w), {poly}=getPoly(shape,x,y,size);
+    // быстрый bbox
+    let minx=1e9,miny=1e9,maxx=-1e9,maxy=-1e9;
+    for(const [px,py] of poly){ if(px<minx)minx=px; if(py<miny)miny=py; if(px>maxx)maxx=px; if(py>maxy)maxy=py; }
+    if(wx<minx||wx>maxx||wy<miny||wy>maxy) continue;
+    if(pip(wx,wy,poly)) return i;
   }
-  return best;
+  return -1;
 }
 
 function openCell(i){
@@ -301,8 +302,9 @@ let dragging=false, lastX=0,lastY=0;
 canvas.addEventListener('pointerdown',e=>{ if(mode==='pan'){dragging=true; lastX=e.clientX; lastY=e.clientY; canvas.setPointerCapture(e.pointerId);} });
 canvas.addEventListener('pointermove',e=>{ if(dragging){ view.ox+=e.clientX-lastX; view.oy+=e.clientY-lastY; lastX=e.clientX; lastY=e.clientY; draw(); }});
 canvas.addEventListener('pointerup',()=>{dragging=false;});
-let touchIds=[], pinchPrev=0;
+
 canvas.addEventListener('touchstart',e=>{ if(e.touches.length===2){pinchPrev=touchDist(e);} },{passive:true});
+let pinchPrev=0;
 canvas.addEventListener('touchmove',e=>{
   if(e.touches.length===2){ e.preventDefault();
     const d=touchDist(e), factor=d/(pinchPrev||d); pinchPrev=d;
@@ -312,9 +314,9 @@ canvas.addEventListener('touchmove',e=>{
     zoomAt(cx,cy,factor);
   }
 },{passive:false});
-function touchDist(e){const [a,b]=[e.touches[0],e.touches[1]]; return Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY);}
+function touchDist(e){const [a,b]=[e.touches[0],e.touches[1]];return Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY);}
 function zoomAt(cx,cy,factor){
-  const [wx,wy]=(p=>[(p[0]-view.ox)/view.scale,(p[1]-view.oy)/view.scale])([cx,cy]);
+  const wx=(cx-view.ox)/view.scale, wy=(cy-view.oy)/view.scale;
   view.scale=clamp(view.scale*factor,.5,3.5);
   view.ox=cx-wx*view.scale; view.oy=cy-wy*view.scale;
   document.getElementById('zoom').textContent=Math.round(view.scale*100)+'%';
@@ -327,7 +329,7 @@ canvas.addEventListener('click',e=>{
   if(mode==='dig') openCell(i); else if(mode==='flag') toggleFlag(i);
 });
 
-/* ---------- UI ---------- */
+/* ========= UI ========= */
 const mineCountEl=document.getElementById('mineCount');
 const flagsLeftEl=document.getElementById('flagsLeft');
 const openedEl=document.getElementById('openedCount');
@@ -354,12 +356,12 @@ function startGame(shape,diff){
   const mines=Math.max(1,Math.floor(w*h*mineRatio));
   const cells=generateSolvable(shape,w,h,mines);
   state={shape,w,h,size:S,mines,cells};
-  // центрирование
-  view.scale=1; view.ox=50; view.oy=50;
+  // стартовый вид — слегка смещённый, чтобы поле вошло
+  view.scale=1; view.ox=60; view.oy=60;
   running=true; setMode('dig'); drawHUD(); draw();
 }
 
-/* ---------- init ---------- */
+/* ========= init ========= */
 function resizeAll(){resize();}
 addEventListener('resize',resizeAll); resizeAll();
 </script>
