@@ -17,7 +17,7 @@
     #panel h1{margin:.2rem 0 0;font-size:1.8rem}
     #panel p{opacity:.85}
     #startBtn{margin-top:10px}
-    canvas{display:block;touch-action:none}
+    canvas{display:block;touch-action:none} /* важно для свайпов, чтобы страница не скроллилась */
     @media (min-width:720px){ .btn{min-width:110px;height:64px;font-size:20px} }
   </style>
 </head>
@@ -35,16 +35,15 @@
   <div id="overlay">
     <div id="panel" class="card" style="padding:18px 20px;background:rgba(18,20,26,.85)">
       <h1>3D Раннер</h1>
-      <p>Уклоняйся от кубов. Кнопки ◀︎ ▶︎ на экране или стрелки на клавиатуре.</p>
+      <p>Уклоняйся от кубов. Стрелки, кнопки на экране или <b>свайп влево/вправо</b> на телефоне.</p>
       <button class="btn" id="startBtn">Старт</button>
     </div>
   </div>
 
-  <!-- three.js с CDN -->
   <script type="module">
     import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
 
-    /* ---------- БАЗА СЦЕНЫ ---------- */
+    /* ---------- СЦЕНА ---------- */
     const scene = new THREE.Scene();
     scene.fog = new THREE.Fog(0x0b0c10, 8, 60);
 
@@ -57,185 +56,125 @@
     document.body.appendChild(renderer.domElement);
 
     /* ---------- СВЕТ ---------- */
-    const hemi = new THREE.HemisphereLight(0xffffff, 0x101010, 1.0);
-    scene.add(hemi);
-    const dir = new THREE.DirectionalLight(0xffffff, 0.8);
-    dir.position.set(5,10,5);
-    scene.add(dir);
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x101010, 1.0));
+    const dir = new THREE.DirectionalLight(0xffffff, 0.8); dir.position.set(5,10,5); scene.add(dir);
 
     /* ---------- ДОРОГА ---------- */
     const laneX = [-2, 0, 2];
-    const groundGeo = new THREE.PlaneGeometry(30, 200, 1, 1);
-    const groundMat = new THREE.MeshStandardMaterial({ color: 0x111418, metalness: 0.2, roughness: 0.9 });
-    const ground = new THREE.Mesh(groundGeo, groundMat);
-    ground.rotation.x = -Math.PI/2;
-    ground.position.z = -90;
-    scene.add(ground);
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(30, 200), new THREE.MeshStandardMaterial({ color: 0x111418, metalness: .2, roughness: .9 }));
+    ground.rotation.x = -Math.PI/2; ground.position.z = -90; scene.add(ground);
 
-    /* ---------- ИГРОК (ШАР) ---------- */
-    const playerGeo = new THREE.SphereGeometry(0.5, 24, 24);
-    const playerMat = new THREE.MeshStandardMaterial({ color: 0x5ad67d, metalness: 0.4, roughness: 0.5 });
-    const player = new THREE.Mesh(playerGeo, playerMat);
-    player.position.set(0, 0.5, 2);
-    scene.add(player);
-
-    let currentLane = 1; // 0..2
-    let targetX = laneX[currentLane];
+    /* ---------- ИГРОК ---------- */
+    const player = new THREE.Mesh(new THREE.SphereGeometry(0.5,24,24), new THREE.MeshStandardMaterial({ color: 0x5ad67d, metalness:.4, roughness:.5 }));
+    player.position.set(0,0.5,2); scene.add(player);
+    let currentLane = 1, targetX = laneX[currentLane];
 
     /* ---------- ПРЕПЯТСТВИЯ ---------- */
     const obstacles = [];
-    const boxGeo = new THREE.BoxGeometry(0.9, 0.9, 0.9);
-    const redMat = new THREE.MeshStandardMaterial({ color: 0xcc3344, metalness: 0.1, roughness: 0.8 });
-
-    function spawnObstacle(zStart=-30) {
+    const boxGeo = new THREE.BoxGeometry(0.9,0.9,0.9);
+    const redMat = new THREE.MeshStandardMaterial({ color: 0xcc3344, metalness:.1, roughness:.8 });
+    function spawnObstacle(zStart=-30){
       const lane = Math.floor(Math.random()*3);
-      const mesh = new THREE.Mesh(boxGeo, redMat);
-      mesh.position.set(laneX[lane], 0.45, zStart);
-      mesh.userData.lane = lane;
-      scene.add(mesh);
-      obstacles.push(mesh);
+      const m = new THREE.Mesh(boxGeo, redMat);
+      m.position.set(laneX[lane], 0.45, zStart);
+      m.userData.lane = lane;
+      scene.add(m); obstacles.push(m);
     }
-
-    // начальный «коридор»
     for (let i=0;i<14;i++) spawnObstacle(-10 - i*4);
 
-    /* ---------- ИГРОВАЯ ЛОГИКА ---------- */
-    let running = false;
-    let speed = 0.18;      // базовая скорость перемещения сцены
-    let speedScale = 1.0;  // множитель (растёт со временем)
-    let score = 0;
-    let lastSpawnZ = -60;
+    /* ---------- ЛОГИКА ---------- */
+    let running=false, speed=0.18, speedScale=1.0, score=0, lastSpawnZ=-60;
+    const uiSpeed=document.getElementById('speed'), uiScore=document.getElementById('score');
+    const overlay=document.getElementById('overlay'), startBtn=document.getElementById('startBtn');
 
-    const uiSpeed = document.getElementById('speed');
-    const uiScore = document.getElementById('score');
-    const overlay = document.getElementById('overlay');
-    const startBtn = document.getElementById('startBtn');
-
-    function resetGame() {
-      // удалить старые препятствия
-      obstacles.forEach(o => scene.remove(o));
-      obstacles.length = 0;
+    function resetGame(){
+      obstacles.forEach(o=>scene.remove(o)); obstacles.length=0;
       for (let i=0;i<14;i++) spawnObstacle(-10 - i*4);
-
-      player.position.set(0,0.5,2);
-      currentLane = 1;
-      targetX = laneX[currentLane];
-      speed = 0.18;
-      speedScale = 1.0;
-      score = 0;
-      lastSpawnZ = -60;
-      updateHUD();
+      player.position.set(0,0.5,2); currentLane=1; targetX=laneX[currentLane];
+      speed=0.18; speedScale=1.0; score=0; lastSpawnZ=-60; updateHUD();
     }
-
-    function updateHUD(){
-      uiSpeed.textContent = speedScale.toFixed(1);
-      uiScore.textContent = Math.floor(score);
-    }
-
-    function gameOver(){
-      running = false;
-      overlay.style.display = "flex";
-      startBtn.textContent = "Ещё раз";
-      startBtn.blur();
-    }
-
-    function startGame(){
-      resetGame();
-      overlay.style.display = "none";
-      running = true;
-    }
-
+    function updateHUD(){ uiSpeed.textContent=speedScale.toFixed(1); uiScore.textContent=Math.floor(score); }
+    function gameOver(){ running=false; overlay.style.display="flex"; startBtn.textContent="Ещё раз"; startBtn.blur(); }
+    function startGame(){ resetGame(); overlay.style.display="none"; running=true; }
     startBtn.addEventListener('click', startGame);
 
-    /* ---------- УПРАВЛЕНИЕ ---------- */
-    const leftBtn = document.getElementById('leftBtn');
-    const rightBtn = document.getElementById('rightBtn');
-
-    function moveLeft(){
-      if (!running) return;
-      currentLane = Math.max(0, currentLane-1);
-      targetX = laneX[currentLane];
-    }
-    function moveRight(){
-      if (!running) return;
-      currentLane = Math.min(2, currentLane+1);
-      targetX = laneX[currentLane];
-    }
-
+    /* ---------- УПРАВЛЕНИЕ: КНОПКИ/КЛАВЫ ---------- */
+    const leftBtn=document.getElementById('leftBtn'), rightBtn=document.getElementById('rightBtn');
+    function moveLeft(){ if(!running) return; currentLane=Math.max(0,currentLane-1); targetX=laneX[currentLane]; }
+    function moveRight(){ if(!running) return; currentLane=Math.min(2,currentLane+1); targetX=laneX[currentLane]; }
     leftBtn.addEventListener('click', moveLeft);
     rightBtn.addEventListener('click', moveRight);
-
-    window.addEventListener('keydown', (e)=>{
-      if (e.key === 'ArrowLeft' || e.key === 'a') moveLeft();
-      if (e.key === 'ArrowRight'|| e.key === 'd') moveRight();
-      if (!running && (e.key === ' ' || e.key === 'Enter')) startGame();
+    window.addEventListener('keydown', e=>{
+      if(e.key==='ArrowLeft'||e.key==='a') moveLeft();
+      if(e.key==='ArrowRight'||e.key==='d') moveRight();
+      if(!running && (e.key===' '||e.key==='Enter')) startGame();
     }, {passive:true});
 
-    /* ---------- РЕНДЕР ЦИКЛ ---------- */
+    /* ---------- УПРАВЛЕНИЕ: СВАЙП ---------- */
+    let touchStartX=0, touchStartY=0, touchStartT=0;
+    const SWIPE_THRESHOLD = 35;   // пикселей по X
+    const SWIPE_TIME = 500;       // мс (макс. длительность свайпа)
+
+    function onTouchStart(e){
+      const t = e.changedTouches[0];
+      touchStartX = t.clientX; touchStartY = t.clientY; touchStartT = performance.now();
+    }
+    function onTouchEnd(e){
+      const t = e.changedTouches[0];
+      const dx = t.clientX - touchStartX;
+      const dy = t.clientY - touchStartY;
+      const dt = performance.now() - touchStartT;
+
+      // горизонтальный быстрый свайп
+      if (dt <= SWIPE_TIME && Math.abs(dx) >= SWIPE_THRESHOLD && Math.abs(dx) > Math.abs(dy)){
+        if (dx < 0) moveLeft(); else moveRight();
+      }
+    }
+    // Вешаем на сам канвас (touch-action:none уже стоит)
+    renderer.domElement.addEventListener('touchstart', onTouchStart, {passive:true});
+    renderer.domElement.addEventListener('touchend', onTouchEnd,   {passive:true});
+
+    /* ---------- ЦИКЛ ---------- */
     let lastTime = performance.now();
     function loop(now){
       requestAnimationFrame(loop);
-      const dt = Math.min(0.033, (now - lastTime)/1000);
-      lastTime = now;
+      const dt = Math.min(0.033, (now-lastTime)/1000); lastTime=now;
 
-      // плавно перемещаем игрока к targetX
       player.position.x += (targetX - player.position.x) * Math.min(1, dt*10);
 
-      if (running){
-        // ускорение со временем
-        speedScale += dt*0.05; // медленно растёт
+      if(running){
+        speedScale += dt*0.05;
         const v = speed * speedScale;
 
-        // двигаем препятствия к игроку (по z)
-        for (let i=0;i<obstacles.length;i++){
-          const o = obstacles[i];
-          o.position.z += v * 60 * dt;
-        }
+        for(const o of obstacles) o.position.z += v*60*dt;
 
-        // удаляем ушедшие вперёд и спауним новые
-        for (let i=obstacles.length-1;i>=0;i--){
-          if (obstacles[i].position.z > 6){
-            scene.remove(obstacles[i]);
-            obstacles.splice(i,1);
-            score += 1;
+        for(let i=obstacles.length-1;i>=0;i--){
+          if(obstacles[i].position.z > 6){
+            scene.remove(obstacles[i]); obstacles.splice(i,1); score += 1;
           }
         }
-        // спаун дальше по треку
-        lastSpawnZ += v * 60 * dt;
-        if (lastSpawnZ > 4){
-          spawnObstacle(-40);
-          lastSpawnZ = 0;
-        }
 
-        // простая проверка столкновений по полосе + дистанции по Z
+        lastSpawnZ += v*60*dt;
+        if(lastSpawnZ > 4){ spawnObstacle(-40); lastSpawnZ = 0; }
+
         for (const o of obstacles){
           if (o.userData.lane === currentLane){
             const dz = Math.abs(o.position.z - player.position.z);
-            if (dz < 0.9){
-              const dx = Math.abs(o.position.x - player.position.x);
-              if (dx < 0.8){
-                gameOver();
-                break;
-              }
-            }
+            if (dz < 0.9 && Math.abs(o.position.x - player.position.x) < 0.8){ gameOver(); break; }
           }
         }
 
-        // анимация земли
-        ground.position.z += v * 60 * dt;
+        ground.position.z += v*60*dt;
         if (ground.position.z > -10) ground.position.z = -90;
 
         updateHUD();
       }
-
       renderer.render(scene, camera);
     }
     requestAnimationFrame(loop);
 
-    /* ---------- РЕСАЙЗ ---------- */
     addEventListener('resize', ()=>{
-      camera.aspect = innerWidth/innerHeight;
-      camera.updateProjectionMatrix();
+      camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix();
       renderer.setSize(innerWidth, innerHeight);
     });
   </script>
